@@ -1,3 +1,9 @@
+#
+This is a fork of the Bempp-cl library. The goal is to provide an alternative to the FMM method by using the
+Interpolated Factored Greens function, implemented in  /home/arieder//devel/pycqlib_ifgf/bempp-cl/
+
+This code is highly experimental
+
 # Bempp-cl
 [![Documentation Status](https://readthedocs.org/projects/bempp-cl/badge/?version=latest)](https://bempp-cl.readthedocs.io/en/latest/?badge=latest)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.02879/status.svg)](https://doi.org/10.21105/joss.02879)
