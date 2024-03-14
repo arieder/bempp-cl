@@ -6,6 +6,7 @@ import numpy as _np
 _FMM_CACHE = {}
 _FMM_POTENTIAL_CACHE = {}
 
+_IFGFSERVER_CACHE = {}
 
 def get_mode_from_operator_identifier(identifier):
     """Get the Fmm mode from the operator identifier."""
@@ -24,7 +25,7 @@ def get_mode_from_operator_identifier(identifier):
 
 
 def get_fmm_interface(
-    domain, dual_to_range, mode, wavenumber, parameters=None, device_interface=None
+        domain, dual_to_range, mode, wavenumber, parameters=None, device_interface=None,use_ifgf=False
 ):
     """Get an Fmm instance."""
     import bempp.api
@@ -45,17 +46,28 @@ def get_fmm_interface(
     interface = _FMM_CACHE.get(key, None)
 
     if interface is None:
-        from bempp.api.fmm.exafmm import ExafmmInterface
+        if(use_ifgf):            
+            from bempp.api.fmm.ifgf import IFGFInterface
+            interface = IFGFInterface.from_grid(
+                domain.grid,
+                mode,
+                wavenumber=wavenumber,
+                target_grid=dual_to_range.grid,
+                device_interface=device_interface,
+            )
+            
+        else:
+            from bempp.api.fmm.exafmm import ExafmmInterface
 
-        interface = ExafmmInterface.from_grid(
-            domain.grid,
-            mode,
-            wavenumber=wavenumber,
-            target_grid=dual_to_range.grid,
-            parameters=parameters,
-            device_interface=device_interface,
-        )
-        _FMM_CACHE[key] = interface
+            interface = ExafmmInterface.from_grid(
+                domain.grid,
+                mode,
+                wavenumber=wavenumber,
+                target_grid=dual_to_range.grid,
+                parameters=parameters,
+                device_interface=device_interface,
+            )
+            _FMM_CACHE[key] = interface
     else:
         bempp.api.log("Using cached Fmm Interface.", level="debug")
 
@@ -149,7 +161,7 @@ class FmmPotentialAssembler(object):
                 operator_descriptor.options[0] + 1j * operator_descriptor.options[1]
             )
         elif mode == "modified_helmholtz":
-            wavenumber = operator_descriptor.options[0]
+            wavenumber = 1j*operator_descriptor.options[0]
         else:
             raise ValueError(f"Unknown value {mode} for `mode`.")
 
@@ -169,7 +181,7 @@ class FmmAssembler(_assembler.AssemblerBase):
     """Assembler for Fmm."""
 
     # pylint: disable=useless-super-delegation
-    def __init__(self, domain, dual_to_range, parameters):
+    def __init__(self, domain, dual_to_range, parameters,use_ifgf=False):
         """Create an Fmm assembler instance."""
         super().__init__(domain, dual_to_range, parameters)
 
@@ -178,6 +190,7 @@ class FmmAssembler(_assembler.AssemblerBase):
         # parameters.quadrature.regular, return_transpose=True
         # )
 
+        self.use_ifgf=use_ifgf
         self.dtype = None
         self._evaluator = None
         self.shape = (dual_to_range.global_dof_count, domain.global_dof_count)
@@ -215,6 +228,7 @@ class FmmAssembler(_assembler.AssemblerBase):
             wavenumber,
             self.parameters,
             device_interface,
+            self.use_ifgf
         )
 
         self._evaluator = create_evaluator(
@@ -249,6 +263,8 @@ class FmmAssembler(_assembler.AssemblerBase):
             return result.reshape([-1, 1])
 
 
+
+
 def make_scalar_hypersingular(
     operator_descriptor, fmm_interface, domain, dual_to_range
 ):
@@ -281,6 +297,7 @@ def make_scalar_hypersingular(
 
     def evaluate_laplace_hypersingular(x):
         """Evaluate the Laplace hypersingular kernel."""
+        
         fmm_res0 = (
             target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)[:, 0]
         )
@@ -300,30 +317,57 @@ def make_scalar_hypersingular(
         )
         x_transformed = source_map @ x
 
-        fmm_res0 = (
-            target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)[:, 0]
-        )
-        fmm_res1 = (
-            target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)[:, 0]
-        )
-        fmm_res2 = (
-            target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)[:, 0]
-        )
+        if(fmm_interface.is_ifgf):
+            fmm_res0 = (
+                target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)
+            )
+            fmm_res1 = (
+                target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)
+            )
+            fmm_res2 = (
+                target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)
+            )
 
-        first_part = fmm_res0 + fmm_res1 + fmm_res2
+            first_part = fmm_res0 + fmm_res1 + fmm_res2
 
-        fmm_n1 = (
-            target_normals[:, 0]
-            * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 0]
-        )
-        fmm_n2 = (
-            target_normals[:, 1]
-            * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 0]
-        )
-        fmm_n3 = (
-            target_normals[:, 2]
-            * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 0]
-        )
+            fmm_n1 = (
+                target_normals[:, 0]
+                * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)
+            )
+            fmm_n2 = (
+                target_normals[:, 1]
+                * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)
+            )
+            fmm_n3 = (
+                target_normals[:, 2]
+                * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)
+            )
+
+        else:
+            fmm_res0 = (
+                target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)[:, 0]
+            )
+            fmm_res1 = (
+                target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)[:, 0]
+            )
+            fmm_res2 = (
+                target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)[:, 0]
+            )
+
+            first_part = fmm_res0 + fmm_res1 + fmm_res2
+
+            fmm_n1 = (
+                target_normals[:, 0]
+                * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 0]
+            )
+            fmm_n2 = (
+                target_normals[:, 1]
+                * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 0]
+            )
+            fmm_n3 = (
+                target_normals[:, 2]
+                * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 0]
+            )
 
         second_part = target_map @ (fmm_n1 + fmm_n2 + fmm_n3)
 
@@ -334,30 +378,56 @@ def make_scalar_hypersingular(
         wavenumber = operator_descriptor.options[0]
         x_transformed = source_map @ x
 
-        fmm_res0 = (
+        if(fmm_interface.is_ifgf):
+            fmm_res0 = (
             target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)[:, 0]
-        )
-        fmm_res1 = (
-            target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)[:, 0]
-        )
-        fmm_res2 = (
-            target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)[:, 0]
-        )
+            )
+            fmm_res1 = (
+                target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)[:, 0]
+            )
+            fmm_res2 = (
+                target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)[:, 0]
+            )
 
-        first_part = fmm_res0 + fmm_res1 + fmm_res2
+            first_part = fmm_res0 + fmm_res1 + fmm_res2
 
-        fmm_n1 = (
-            target_normals[:, 0]
-            * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 0]
-        )
-        fmm_n2 = (
-            target_normals[:, 1]
-            * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 0]
-        )
-        fmm_n3 = (
-            target_normals[:, 2]
-            * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 0]
-        )
+            fmm_n1 = (
+                target_normals[:, 0]
+                * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 0]
+            )
+            fmm_n2 = (
+                target_normals[:, 1]
+                * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 0]
+            )
+            fmm_n3 = (
+                target_normals[:, 2]
+                * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 0]
+            )
+        else:
+            fmm_res0 = (
+                target_curls_trans[0] @ fmm_interface.evaluate(source_curls[0] @ x)[:, 0]
+            )
+            fmm_res1 = (
+                target_curls_trans[1] @ fmm_interface.evaluate(source_curls[1] @ x)[:, 0]
+            )
+            fmm_res2 = (
+                target_curls_trans[2] @ fmm_interface.evaluate(source_curls[2] @ x)[:, 0]
+            )
+
+            first_part = fmm_res0 + fmm_res1 + fmm_res2
+
+            fmm_n1 = (
+                target_normals[:, 0]
+                * fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 0]
+            )
+            fmm_n2 = (
+                target_normals[:, 1]
+                * fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 0]
+            )
+            fmm_n3 = (
+                target_normals[:, 2]
+                * fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 0]
+            )
 
         second_part = target_map @ (fmm_n1 + fmm_n2 + fmm_n3)
 
@@ -390,10 +460,27 @@ def make_default_scalar(operator_descriptor, fmm_interface, domain, dual_to_rang
     source_normals = get_normals(domain, npoints)
     target_normals = get_normals(dual_to_range, npoints)
 
+    mode = get_mode_from_operator_identifier(operator_descriptor.identifier)
+
+
+    if(len(operator_descriptor.options)>1):
+        wavenumber = (
+            operator_descriptor.options[0] + 1j * operator_descriptor.options[1]
+        )
+    else:
+        if(mode == 'modified_helmholtz'):
+            wavenumber = (
+                1j*operator_descriptor.options[0] 
+            )
+        else:
+            wavenumber = (
+                operator_descriptor.options[0] 
+            )
+
     def evaluate_single_layer(x):
         """Actually evaluate single layer."""
         x_transformed = source_map @ x
-        fmm_res = fmm_interface.evaluate(x_transformed)[:, 0]
+        fmm_res = fmm_interface.evaluate(x_transformed,deriv=0,wavenumber=wavenumber)
         return target_map @ fmm_res + singular_part @ x
 
     def evaluate_adjoint_double_layer(x):
@@ -401,19 +488,31 @@ def make_default_scalar(operator_descriptor, fmm_interface, domain, dual_to_rang
         import numpy as np
 
         x_transformed = source_map @ x
-        fmm_res = np.sum(
-            fmm_interface.evaluate(x_transformed)[:, 1:] * target_normals, axis=1
-        )
+
+        if(fmm_interface.is_ifgf):
+            fmm_res=  fmm_interface.evaluate(x_transformed,deriv=1,wavenumber=wavenumber) *target_normals[:,0];
+            fmm_res+=  fmm_interface.evaluate(x_transformed,deriv=2,wavenumber=wavenumber) *target_normals[:,1];
+            fmm_res+=  fmm_interface.evaluate(x_transformed,deriv=3,wavenumber=wavenumber) *target_normals[:,2];
+        else:
+            fmm_res = np.sum(
+                fmm_interface.evaluate(x_transformed,wavenumber)[:, 1:] * target_normals, axis=1
+            )
+
+        
         return target_map @ fmm_res + singular_part @ x
 
     def evaluate_double_layer(x):
         """Actually evaluate double layer."""
         x_transformed = source_map @ x
 
-        fmm_res1 = fmm_interface.evaluate(source_normals[:, 0] * x_transformed)[:, 1]
-        fmm_res2 = fmm_interface.evaluate(source_normals[:, 1] * x_transformed)[:, 2]
-        fmm_res3 = fmm_interface.evaluate(source_normals[:, 2] * x_transformed)[:, 3]
-
+        if(fmm_interface.is_ifgf):
+            fmm_res1 = fmm_interface.evaluate(source_normals[:, 0] * x_transformed,deriv=1,wavenumber=wavenumber)
+            fmm_res2 = fmm_interface.evaluate(source_normals[:, 1] * x_transformed,deriv=2,wavenumber=wavenumber)
+            fmm_res3 = fmm_interface.evaluate(source_normals[:, 2] * x_transformed,deriv=3,wavenumber=wavenumber)
+        else:
+            fmm_res1 = fmm_interface.evaluate(source_normals[:, 0] * x_transformed,wavenumber=wavenumber)[:, 1]
+            fmm_res2 = fmm_interface.evaluate(source_normals[:, 1] * x_transformed,wavenumber=wavenumber)[:, 2]
+            fmm_res3 = fmm_interface.evaluate(source_normals[:, 2] * x_transformed,wavenumber=wavenumber)[:, 3]
         fmm_res = -(fmm_res1 + fmm_res2 + fmm_res3)
 
         return target_map @ fmm_res + singular_part @ x
@@ -925,5 +1024,9 @@ def clear_fmm_cache():
     global _FMM_CACHE
     global _FMM_POTENTIAL_CACHE
 
-    _FMM_CACHE = {}
-    _FMM_POTENTIAL_CACHE = {}
+    #for fmm in _FMM_CACHE.values():
+    #    fmm.cleanup()
+
+    print("refusing to clear the cache")
+    #_FMM_CACHE = {}
+    #_FMM_POTENTIAL_CACHE = {}

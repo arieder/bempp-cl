@@ -46,9 +46,10 @@ class ExafmmInterface(object):
                 try:
                     os.mkdir(FMM_TMP_DIR)
                 except:
-                    raise FileExistsError(
-                        f"A file with the name {FMM_TMP_DIR} exists. Please delete it."
-                    )
+                    print("file exists. probably fine")
+                    #raise FileExistsError(
+                    #    f"A file with the name {FMM_TMP_DIR} exists. Please delete it."
+                    #)
 
         for _ in range(10):
             tmp_name = create_unique_id() + ".tmp"
@@ -64,6 +65,8 @@ class ExafmmInterface(object):
         self._source_points = source_points
         self._target_points = target_points
         self._mode = mode
+
+        self.is_ifgf=False
 
         if mode == "laplace":
             self._kernel_parameters = _np.array([], dtype="float64")
@@ -136,7 +139,7 @@ class ExafmmInterface(object):
         """Return number of target points."""
         return len(self._target_points)
 
-    def evaluate(self, vec, apply_singular_correction=True):
+    def evaluate(self, vec, apply_singular_correction=True,deriv=0,wavenumber=-1):
         """Evalute the Fmm."""
         import bempp.api
         from bempp.api.fmm.helpers import debug_fmm

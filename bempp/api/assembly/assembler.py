@@ -34,7 +34,11 @@ def _create_assembler(
             raise ValueError(
                 "No compatible FMM library found. Please install Exafmm from github.com/exafmm/exafmm-t."
             )
-        return FmmAssembler(domain, dual_to_range, parameters)
+        return FmmAssembler(domain, dual_to_range, parameters,use_ifgf=False)
+    if identifier == "ifgf":
+        print("ifgf!")
+        return FmmAssembler(domain, dual_to_range, parameters,use_ifgf=True)
+
     else:
         raise ValueError("Unknown assembler type.")
     # if identifier == "dense_evaluator":

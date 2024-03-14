@@ -40,6 +40,17 @@ class _Fmm(object):
         self.debug = False
         self.dense_evaluation = False
 
+class _Ifgf(object):
+    """Fmm options."""
+
+    def __init__(self):
+        """Iniitalize IFGF parameters."""
+        self.order=5
+        self.n_elements=1
+        self.leaf_size=1000
+        self.tol=1e-5;
+        
+
 
 class _DenseAssembly(object):
     """Dense assembly options."""
@@ -69,3 +80,4 @@ class DefaultParameters(object):
         self.quadrature = _Quadrature()
         self.assembly = _Assembly()
         self.fmm = _Fmm()
+        self.ifgf=_Ifgf()
