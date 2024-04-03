@@ -29,10 +29,13 @@ class IFGFInterface(object):
         self,
         source_points,
         target_points,
+        source_normals,
+        target_normals,
         mode,
         wavenumber=None,
         precision="double",
         singular_correction=None,
+        is_dl=False
     ):
 
         """Instantiate an IFGF session."""
@@ -53,12 +56,17 @@ class IFGFInterface(object):
         n_elements=bempp.api.GLOBAL_PARAMETERS.ifgf.n_elements
         
 
+        if(is_dl==True):
+            self.op=pyifgf.DoubleLayerHelmholtzIfgfOperator(-1j*wavenumber,leaf_size,order,n_elements,tol)
+            self.op.init(source_points.T,target_points.T,source_normals.T);
 
-        self.op=pyifgf.GradHelmholtzIfgfOperator(-1j*wavenumber,leaf_size,order,n_elements,tol)
-        self.op.init(source_points.T,target_points.T);
+        else:
+            self.op=pyifgf.GradHelmholtzIfgfOperator(-1j*wavenumber,leaf_size,order,n_elements,tol)
+            self.op.init(source_points.T,target_points.T);
 
         
 
+        self.is_dl=is_dl
         self.wavenumber=wavenumber
         if mode == "laplace":
             self._kernel_parameters = _np.array([], dtype="float64")
@@ -82,7 +90,7 @@ class IFGFInterface(object):
         """Return number of target points."""
         return len(self._target_points)
 
-    def evaluate(self, vec, apply_singular_correction=True,deriv=0,wavenumber=-1):
+    def evaluate(self, vec, apply_singular_correction=True,deriv=0,wavenumber=-1,source_normals=None):
         """Evalute the Fmm."""
         import bempp.api
         from bempp.api.fmm.helpers import debug_fmm
@@ -101,7 +109,8 @@ class IFGFInterface(object):
                         self._kernel_parameters,
                     )
                 else:
-                    self.op.setDx(deriv-1);
+                    if(not self.is_dl):
+                        self.op.setDx(deriv-1);
 
                         
                     r1_c=self.op.mult(vec);
@@ -119,7 +128,13 @@ class IFGFInterface(object):
                     )
             print("starting singular correction")
             if apply_singular_correction and self._singular_correction is not None:
-                result -= (self._singular_correction @ vec).reshape([-1, 4])[:,deriv]
+                if(self.is_dl):
+                    result -= (self._singular_correction @ (source_normals[:,0]*vec)).reshape([-1, 4])[:,1]
+                    result -= (self._singular_correction @ (source_normals[:,1]*vec)).reshape([-1, 4])[:,2]
+                    result -= (self._singular_correction @ (source_normals[:,2]*vec)).reshape([-1, 4])[:,3]
+                    
+                else:
+                    result -= (self._singular_correction @ vec).reshape([-1, 4])[:,deriv]
 
             print("done with singular corrections")
 
@@ -150,6 +165,9 @@ class IFGFInterface(object):
         target_grid=None,
         precision="double",
         device_interface=None,
+        is_dl=False,
+        domain=None,
+        dual_to_range=None
     ):
         """
         Initialise an IFGF instance from a given source and target grid.
@@ -175,6 +193,7 @@ class IFGFInterface(object):
         import bempp.api
         from bempp.api.integration.triangle_gauss import rule
         from bempp.api.fmm.helpers import get_local_interaction_operator
+        from bempp.api.integration.triangle_gauss import get_number_of_quad_points
         import numpy as np
 
         quadrature_order = bempp.api.GLOBAL_PARAMETERS.quadrature.regular
@@ -195,6 +214,12 @@ class IFGFInterface(object):
         else:
             target_points = source_points
 
+            
+        npoints = get_number_of_quad_points(quadrature_order)
+        source_normals = get_normals(domain, npoints)
+        target_normals = get_normals(dual_to_range, npoints)
+
+            
         singular_correction = None
 
         if target_grid == source_grid:
@@ -239,8 +264,26 @@ class IFGFInterface(object):
         return cls(
             source_points,
             target_points,
+            source_normals,
+            target_normals,
             mode,
             wavenumber=wavenumber,
             precision=precision,
             singular_correction=singular_correction,
+            is_dl=is_dl
         )
+
+def get_normals(space, npoints):
+    """Get the normal vectors on the quadrature points."""
+    import numpy as np
+
+    grid = space.grid
+    number_of_elements = grid.number_of_elements
+
+    normals = np.empty((npoints * number_of_elements, 3), dtype="float64")
+    for element in range(number_of_elements):
+        for n in range(npoints):
+            normals[npoints * element + n, :] = (
+                grid.normals[element] * space.normal_multipliers[element]
+            )
+    return normals

@@ -25,7 +25,7 @@ def get_mode_from_operator_identifier(identifier):
 
 
 def get_fmm_interface(
-        domain, dual_to_range, mode, wavenumber, parameters=None, device_interface=None,use_ifgf=False
+        domain, dual_to_range, mode, wavenumber, parameters=None, device_interface=None,use_ifgf=False, is_double_layer=False
 ):
     """Get an Fmm instance."""
     import bempp.api
@@ -41,6 +41,7 @@ def get_fmm_interface(
         wavenumber,
         parameters.fmm.expansion_order,
         parameters.fmm.ncrit,
+        is_double_layer
     )
 
     interface = _FMM_CACHE.get(key, None)
@@ -54,6 +55,9 @@ def get_fmm_interface(
                 wavenumber=wavenumber,
                 target_grid=dual_to_range.grid,
                 device_interface=device_interface,
+                is_dl=is_double_layer,
+                domain=domain,
+                dual_to_range=dual_to_range
             )
             
         else:
@@ -221,6 +225,9 @@ class FmmAssembler(_assembler.AssemblerBase):
         else:
             raise ValueError(f"Unknown value {mode} for `mode`.")
 
+        is_double_layer=False
+        if "double" in operator_descriptor.identifier:
+            is_double_layer=True;
         fmm_interface = get_fmm_interface(
             actual_domain,
             actual_dual_to_range,
@@ -228,7 +235,8 @@ class FmmAssembler(_assembler.AssemblerBase):
             wavenumber,
             self.parameters,
             device_interface,
-            self.use_ifgf
+            self.use_ifgf,
+            is_double_layer
         )
 
         self._evaluator = create_evaluator(
@@ -480,7 +488,10 @@ def make_default_scalar(operator_descriptor, fmm_interface, domain, dual_to_rang
     def evaluate_single_layer(x):
         """Actually evaluate single layer."""
         x_transformed = source_map @ x
-        fmm_res = fmm_interface.evaluate(x_transformed,deriv=0,wavenumber=wavenumber)
+        if(fmm_interface.is_ifgf):
+            fmm_res = fmm_interface.evaluate(x_transformed,deriv=0,wavenumber=wavenumber)
+        else:
+            fmm_res = fmm_interface.evaluate(x_transformed,wavenumber=wavenumber)[:,0]
         return target_map @ fmm_res + singular_part @ x
 
     def evaluate_adjoint_double_layer(x):
@@ -506,14 +517,12 @@ def make_default_scalar(operator_descriptor, fmm_interface, domain, dual_to_rang
         x_transformed = source_map @ x
 
         if(fmm_interface.is_ifgf):
-            fmm_res1 = fmm_interface.evaluate(source_normals[:, 0] * x_transformed,deriv=1,wavenumber=wavenumber)
-            fmm_res2 = fmm_interface.evaluate(source_normals[:, 1] * x_transformed,deriv=2,wavenumber=wavenumber)
-            fmm_res3 = fmm_interface.evaluate(source_normals[:, 2] * x_transformed,deriv=3,wavenumber=wavenumber)
+            fmm_res = - fmm_interface.evaluate( x_transformed,wavenumber=wavenumber,source_normals=source_normals)
         else:
             fmm_res1 = fmm_interface.evaluate(source_normals[:, 0] * x_transformed,wavenumber=wavenumber)[:, 1]
             fmm_res2 = fmm_interface.evaluate(source_normals[:, 1] * x_transformed,wavenumber=wavenumber)[:, 2]
             fmm_res3 = fmm_interface.evaluate(source_normals[:, 2] * x_transformed,wavenumber=wavenumber)[:, 3]
-        fmm_res = -(fmm_res1 + fmm_res2 + fmm_res3)
+            fmm_res = -(fmm_res1 + fmm_res2 + fmm_res3)
 
         return target_map @ fmm_res + singular_part @ x
 
