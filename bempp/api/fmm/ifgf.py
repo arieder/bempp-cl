@@ -61,7 +61,11 @@ class IFGFInterface(object):
             self.op.init(source_points.T,target_points.T,source_normals.T);
 
         else:
-            self.op=pyifgf.GradHelmholtzIfgfOperator(-1j*wavenumber,leaf_size,order,n_elements,tol)
+            if(mode == "modified_helmholtz"):
+                print("modified")
+                self.op=pyifgf.GradHelmholtzIfgfOperator(wavenumber,leaf_size,order,n_elements,tol)
+            else:
+                self.op=pyifgf.GradHelmholtzIfgfOperator(-1j*wavenumber,leaf_size,order,n_elements,tol)
             self.op.init(source_points.T,target_points.T);
 
         

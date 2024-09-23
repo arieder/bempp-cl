@@ -165,7 +165,8 @@ class FmmPotentialAssembler(object):
                 operator_descriptor.options[0] + 1j * operator_descriptor.options[1]
             )
         elif mode == "modified_helmholtz":
-            wavenumber = 1j*operator_descriptor.options[0]
+            print("using a modified helmholtz for some reason")
+            wavenumber = operator_descriptor.options[0]
         else:
             raise ValueError(f"Unknown value {mode} for `mode`.")
 
